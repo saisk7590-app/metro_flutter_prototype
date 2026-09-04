@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../widgets/common/custom_header.dart';
 import '../../widgets/checklist/checklist_filters.dart';
 import '../../widgets/checklist/checklist_list.dart';
+import '../../widgets/checklist/checklist_footer.dart';
 
 class ChecklistScreen extends StatelessWidget {
   const ChecklistScreen({super.key});
@@ -22,7 +23,21 @@ class ChecklistScreen extends StatelessWidget {
 
           const ChecklistFilters(),
 
-          Expanded(child: ChecklistList()),
+          Expanded(
+            child: Column(
+              children: [
+                Expanded(
+                  child: ChecklistList(),
+                ),
+
+                const ChecklistFooter(
+                  showing: 2,
+                  total: 116,
+                  hasMore: true,
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'delete_checklist_dialog.dart';
+import '../../screens/checklist/checklist_edit_screen.dart';
+
 class ChecklistCard extends StatelessWidget {
   final String id;
   final String name;
@@ -30,7 +33,7 @@ class ChecklistCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            /// Header
+            /// HEADER
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -46,7 +49,9 @@ class ChecklistCard extends StatelessWidget {
                           fontWeight: FontWeight.w500,
                         ),
                       ),
+
                       const SizedBox(height: 4),
+
                       Text(
                         id,
                         style: TextStyle(
@@ -55,7 +60,9 @@ class ChecklistCard extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
+
                       const SizedBox(height: 4),
+
                       Text(
                         name,
                         maxLines: 2,
@@ -71,6 +78,7 @@ class ChecklistCard extends StatelessWidget {
 
                 const SizedBox(width: 8),
 
+                /// EDIT BUTTON
                 Container(
                   decoration: BoxDecoration(
                     color: colors.surfaceContainerHighest,
@@ -79,12 +87,21 @@ class ChecklistCard extends StatelessWidget {
                   child: IconButton(
                     icon: const Icon(Icons.edit_outlined),
                     tooltip: "Edit",
-                    onPressed: () {},
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) =>
+                              ChecklistEditScreen(checklistName: name),
+                        ),
+                      );
+                    },
                   ),
                 ),
 
                 const SizedBox(width: 8),
 
+                /// DELETE BUTTON
                 Container(
                   decoration: BoxDecoration(
                     color: colors.surfaceContainerHighest,
@@ -93,24 +110,43 @@ class ChecklistCard extends StatelessWidget {
                   child: IconButton(
                     icon: const Icon(Icons.delete_outline),
                     tooltip: "Delete",
-                    onPressed: () {},
+                    onPressed: () async {
+                      final confirmed = await showDeleteChecklistDialog(
+                        context,
+                        checklistName: name,
+                      );
+
+                      if (confirmed == true && context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('"$name" deleted'),
+                            duration: const Duration(seconds: 1),
+                          ),
+                        );
+                      }
+                    },
                   ),
                 ),
               ],
             ),
 
             const SizedBox(height: 12),
+
             Divider(color: colors.outlineVariant),
+
             const SizedBox(height: 12),
 
+            /// CATEGORY
             _buildInfoRow(context, "Category", category),
 
             const SizedBox(height: 10),
 
+            /// JOB PLAN
             _buildInfoRow(context, "Job Plan", jobPlan),
 
             const SizedBox(height: 10),
 
+            /// SCHEDULE
             _buildInfoRow(context, "Schedule", schedule),
           ],
         ),
@@ -135,6 +171,7 @@ class ChecklistCard extends StatelessWidget {
             ),
           ),
         ),
+
         Expanded(
           child: Text(
             value,
