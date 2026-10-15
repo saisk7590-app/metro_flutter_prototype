@@ -1,9 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import '../../models/meter/trainset_meter_reading_model.dart';
+import 'package:provider/provider.dart';
+import '../../providers/meter/trainset_meter_reading_provider.dart';
+import '../../providers/auth/login_provider.dart';
+import '../../screens/auth/login_screen.dart';
 
 import 'date_search_bar.dart';
 import 'meter_bottom_sheet.dart';
 import 'pagination_bar.dart';
 import 'trainset_row.dart';
+import 'website_date_picker.dart';
+import '../../services/api_service.dart';
+import '../../utils/token_diagnostics.dart';
 
 class TrainsetTable extends StatefulWidget {
   const TrainsetTable({super.key});
@@ -17,38 +27,172 @@ class _TrainsetTableState extends State<TrainsetTable> {
 
   int itemsPerPage = 10;
   int currentPage = 1;
+  String searchText = '';
+  List<TrainsetMeterReadingModel> searchMatches = [];
+  Timer? searchDebounce;
+  bool searchLoading = false;
 
   final TextEditingController searchController = TextEditingController();
 
-  final List<Map<String, dynamic>> trainsets = List.generate(57, (index) {
-    return {
-      "no": index + 1,
-      "trainset": "TS${(index + 1).toString().padLeft(3, '0')}",
-      "location": index < 30 ? "NDP" : "MDP",
-      "previousDay": "29-07-2026",
-      "previousStatus": "Completed",
-      "currentStatus": "Not Started",
-    };
-  });
-
   @override
   void dispose() {
+    searchDebounce?.cancel();
     searchController.dispose();
     super.dispose();
   }
 
+  @override
+  void initState() {
+    super.initState();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadReadings();
+    });
+  }
+
+  String _normalize(String value) =>
+      value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+
+  void _filterTrainsets(String value) {
+    final query = _normalize(value);
+    searchDebounce?.cancel();
+    setState(() {
+      searchText = query;
+      currentPage = 1;
+      searchMatches = [];
+      searchLoading = query.isNotEmpty;
+    });
+    if (query.isNotEmpty) {
+      searchDebounce = Timer(
+        const Duration(milliseconds: 350),
+        _loadSearchResults,
+      );
+    }
+  }
+
+  Future<void> _loadSearchResults() async {
+    final requestedQuery = searchText;
+    final loginData = context.read<LoginProvider>().loginData;
+    final token = loginData?.token ?? ApiService.currentToken ?? '';
+    final userSession = loginData?.encodedUserSession ?? ApiService.currentUserSession ?? '';
+    final roleId = context.read<LoginProvider>().selectedRoleId ??
+        (loginData != null && loginData.roleIds.isNotEmpty
+            ? loginData.roleIds.split(',').first.trim()
+            : ApiService.currentRoleId ?? '1');
+    if (token.isEmpty) return;
+    final date = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+    ).toIso8601String().split('.').first;
+    try {
+      final results = await context
+          .read<TrainsetMeterReadingProvider>()
+          .getAllForSearch(
+            date: date,
+            token: token,
+            userSession: userSession,
+            roleId: roleId,
+          );
+      if (!mounted || requestedQuery != searchText) return;
+      setState(() {
+        searchMatches = results;
+        searchLoading = false;
+      });
+    } catch (_) {
+      if (mounted && requestedQuery == searchText) {
+        setState(() {
+          searchMatches = [];
+          searchLoading = false;
+        });
+      }
+    }
+  }
+
+  void _changePage(int page) {
+    setState(() => currentPage = page);
+    if (searchText.isEmpty) {
+      _loadReadings();
+    }
+  }
+
+  void _clearSearchAndLoad() {
+    searchDebounce?.cancel();
+    searchController.clear();
+    setState(() {
+      searchText = '';
+      searchMatches = [];
+      searchLoading = false;
+      currentPage = 1;
+    });
+    _loadReadings();
+  }
+
+  Future<void> _loadReadings() async {
+    final loginProvider = context.read<LoginProvider>();
+    final meterProvider = context.read<TrainsetMeterReadingProvider>();
+    var loginData = loginProvider.loginData;
+    if (loginData == null && await LoginProvider.hasSavedBiometricSession()) {
+      if (!mounted) return;
+      await loginProvider.restoreSavedSession();
+      if (!mounted) return;
+      loginData = loginProvider.loginData;
+    }
+
+    final token = loginData?.token ?? ApiService.currentToken ?? '';
+    final userSession = loginData?.encodedUserSession ?? ApiService.currentUserSession ?? '';
+    final roleId = loginProvider.selectedRoleId ??
+        (loginData != null && loginData.roleIds.isNotEmpty
+            ? loginData.roleIds.split(',').first.trim()
+            : ApiService.currentRoleId ?? '1');
+
+    if (token.isEmpty) {
+      meterProvider.setErrorMessage(
+        'Authentication required. Please log in to view meter readings.',
+      );
+      return;
+    }
+
+    logTokenDiagnostics('after LoginProvider retrieval', token);
+
+    final date = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+    ).toIso8601String().split('.').first;
+
+    await meterProvider.getTrainsetMeterReadings(
+      date: date,
+      pageNo: currentPage,
+      pageSize: itemsPerPage,
+      pagination: 1,
+      token: token,
+      userSession: userSession,
+      roleId: roleId,
+    );
+  }
+
   Future<void> pickDate() async {
-    final picked = await showDatePicker(
+    final picked = await showDialog<DateTime>(
       context: context,
-      initialDate: selectedDate,
-      firstDate: DateTime(2025),
-      lastDate: DateTime(2100),
+      builder: (context) => WebsiteDatePicker(
+        initialDate: selectedDate,
+        firstDate: DateTime(2020),
+        lastDate: DateTime(2100),
+      ),
     );
 
     if (picked != null) {
+      searchDebounce?.cancel();
+      searchController.clear();
       setState(() {
         selectedDate = picked;
+        searchText = '';
+        searchMatches = [];
+        searchLoading = false;
+        currentPage = 1;
       });
+      await _loadReadings();
     }
   }
 
@@ -57,27 +201,38 @@ class _TrainsetTableState extends State<TrainsetTable> {
       flex: flex,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: Text(
-          text,
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
+        child: Text(text, style: const TextStyle(fontWeight: FontWeight.bold)),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final provider = context.watch<TrainsetMeterReadingProvider>();
+
+    final trainsets = provider.trainsetMeterReadings;
     final colors = Theme.of(context).colorScheme;
 
-    final totalPages = (trainsets.length / itemsPerPage).ceil();
-
-    final startIndex = (currentPage - 1) * itemsPerPage;
-
-    final endIndex = (startIndex + itemsPerPage > trainsets.length)
-        ? trainsets.length
-        : startIndex + itemsPerPage;
-
-    final visibleRows = trainsets.sublist(startIndex, endIndex);
+    final matches = searchText.isEmpty
+        ? trainsets
+        : searchMatches.where((row) {
+            final searchable = _normalize(
+              '${row.assetNo} ${row.locationCode} ${row.locationName}',
+            );
+            return searchable.contains(searchText);
+          }).toList();
+    final totalItems = searchText.isNotEmpty
+        ? matches.length
+        : provider.totalRows > 0
+        ? provider.totalRows
+        : trainsets.length;
+    final totalPages = (totalItems / itemsPerPage).ceil().clamp(1, 999999);
+    final visibleRows = searchText.isEmpty
+        ? trainsets
+        : matches
+              .skip((currentPage - 1) * itemsPerPage)
+              .take(itemsPerPage)
+              .toList();
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -97,14 +252,20 @@ class _TrainsetTableState extends State<TrainsetTable> {
                   selectedDate: selectedDate,
                   searchController: searchController,
                   onPickDate: pickDate,
-                  onSearch: () {},
+                  onSearch: _clearSearchAndLoad,
+                  onSearchChanged: _filterTrainsets,
                   onRefresh: () {
                     searchController.clear();
+                    searchDebounce?.cancel();
 
                     setState(() {
                       selectedDate = DateTime.now();
+                      searchText = '';
+                      searchMatches = [];
+                      searchLoading = false;
                       currentPage = 1;
                     });
+                    _loadReadings();
                   },
                 ),
 
@@ -132,46 +293,61 @@ class _TrainsetTableState extends State<TrainsetTable> {
                 // Rows
                 //--------------------------------------------------
                 Expanded(
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(12),
-                    itemCount: visibleRows.length,
-                    itemBuilder: (context, index) {
-                      final row = visibleRows[index];
+                  child: provider.isLoading || searchLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : provider.errorMessage != null
+                      ? _buildErrorView(provider.errorMessage!)
+                      : visibleRows.isEmpty
+                      ? Center(
+                          child: Text(
+                            searchText.isEmpty
+                                ? 'No meter readings found.'
+                                : 'No matching trainset found.',
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.all(12),
+                          itemCount: visibleRows.length,
+                          itemBuilder: (context, index) {
+                            final row = visibleRows[index];
 
-                      return TrainsetRow(
-                        serialNo: row["no"],
-                        trainset: row["trainset"],
-                        location: row["location"],
-                        previousDay: row["previousDay"],
-                        previousStatus: row["previousStatus"],
-                        currentStatus: row["currentStatus"],
-                        onEdit: () async {
-                          final status =
-                              await showModalBottomSheet<String>(
-                            context: context,
-                            isScrollControlled: true,
-                            backgroundColor: Colors.transparent,
-                            builder: (_) {
-                              return MeterBottomSheet(
-                                trainset: row["trainset"],
-                                location: row["location"],
-                                date: selectedDate
-                                    .toString()
-                                    .split(" ")
-                                    .first,
-                              );
-                            },
-                          );
+                            return TrainsetRow(
+                              isMobile: isMobile,
+                              serialNo:
+                                  (currentPage - 1) * itemsPerPage + index + 1,
+                              trainset: row.assetNo,
+                              location: row.locationCode,
+                              previousDay: row.formattedPreviousDate,
+                              previousStatus: row.previousDateReading,
+                              currentStatus: row.todayReading,
+                              onEdit: () async {
+                                final editDate = DateTime(
+                                  selectedDate.year,
+                                  selectedDate.month,
+                                  selectedDate.day,
+                                ).toIso8601String().split('.').first;
 
-                          if (status != null) {
-                            setState(() {
-                              row["currentStatus"] = status;
-                            });
-                          }
-                        },
-                      );
-                    },
-                  ),
+                                final result =
+                                    await showModalBottomSheet<String>(
+                                  context: context,
+                                  isScrollControlled: true,
+                                  backgroundColor: Colors.transparent,
+                                  builder: (_) {
+                                    return MeterBottomSheet(
+                                      trainsetId: row.assetId,
+                                      trainset: row.assetNo,
+                                      location: row.locationCode,
+                                      date: editDate,
+                                    );
+                                  },
+                                );
+                                if (result != null) {
+                                  _loadReadings();
+                                }
+                              },
+                            );
+                          },
+                        ),
                 ),
 
                 //--------------------------------------------------
@@ -179,46 +355,114 @@ class _TrainsetTableState extends State<TrainsetTable> {
                 //--------------------------------------------------
                 PaginationBar(
                   currentPage: currentPage,
-                  totalItems: trainsets.length,
+                  totalItems: totalItems,
                   itemsPerPage: itemsPerPage,
                   onItemsChanged: (value) {
                     setState(() {
                       itemsPerPage = value;
                       currentPage = 1;
                     });
+                    _changePage(currentPage);
                   },
-                  onFirst: currentPage == 1
+                  onFirst: currentPage <= 1
                       ? null
                       : () {
                           setState(() {
                             currentPage = 1;
                           });
+                          _changePage(currentPage);
                         },
-                  onPrevious: currentPage == 1
+                  onPrevious: currentPage <= 1
                       ? null
                       : () {
                           setState(() {
                             currentPage--;
                           });
+                          _changePage(currentPage);
                         },
-                  onNext: currentPage == totalPages
+                  onNext: currentPage >= totalPages
                       ? null
                       : () {
                           setState(() {
                             currentPage++;
                           });
+                          _changePage(currentPage);
                         },
-                  onLast: currentPage == totalPages
+                  onLast: currentPage >= totalPages
                       ? null
                       : () {
                           setState(() {
                             currentPage = totalPages;
                           });
+                          _changePage(currentPage);
                         },
                 ),
               ],
             );
           },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildErrorView(String msg) {
+    final isSessionError = msg.contains('401') ||
+        msg.toLowerCase().contains('unauthorized') ||
+        msg.toLowerCase().contains('session expired') ||
+        msg.toLowerCase().contains('token expired') ||
+        msg.toLowerCase().contains('authentication required');
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isSessionError ? Icons.lock_clock_outlined : Icons.cloud_off_rounded,
+              size: 48,
+              color: isSessionError ? Colors.amber.shade800 : Colors.red.shade400,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              isSessionError ? "Session Expired" : "Unable to Fetch Meter Readings",
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              msg,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _loadReadings,
+                  icon: const Icon(Icons.refresh, size: 16),
+                  label: const Text("Retry"),
+                ),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue.shade700,
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: () {
+                    Navigator.pushAndRemoveUntil(
+                      context,
+                      MaterialPageRoute(builder: (_) => const LoginScreen()),
+                      (route) => false,
+                    );
+                  },
+                  icon: const Icon(Icons.login, size: 16),
+                  label: const Text("Log In Again"),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );

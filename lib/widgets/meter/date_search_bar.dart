@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 
 class DateSearchBar extends StatelessWidget {
-  final DateTime selectedDate;
+  final DateTime? selectedDate;
   final TextEditingController searchController;
 
   final VoidCallback onPickDate;
   final VoidCallback onSearch;
   final VoidCallback onRefresh;
+  final ValueChanged<String> onSearchChanged;
 
   const DateSearchBar({
     super.key,
@@ -15,6 +16,7 @@ class DateSearchBar extends StatelessWidget {
     required this.onPickDate,
     required this.onSearch,
     required this.onRefresh,
+    required this.onSearchChanged,
   });
 
   @override
@@ -37,10 +39,16 @@ class DateSearchBar extends StatelessWidget {
                       border: OutlineInputBorder(),
                       suffixIcon: Icon(Icons.calendar_today),
                     ),
-                    child: Text(
-                      "${selectedDate.day.toString().padLeft(2, '0')}-"
-                      "${selectedDate.month.toString().padLeft(2, '0')}-"
-                      "${selectedDate.year}",
+                    child: Builder(
+                      builder: (context) {
+                        final d = selectedDate ?? DateTime.now();
+                        return Text(
+                          "${d.day.toString().padLeft(2, '0')}-"
+                          "${d.month.toString().padLeft(2, '0')}-"
+                          "${d.year}",
+                          style: const TextStyle(fontWeight: FontWeight.w500),
+                        );
+                      },
                     ),
                   ),
                 ),
@@ -57,7 +65,7 @@ class DateSearchBar extends StatelessWidget {
               const SizedBox(width: 8),
 
               IconButton.outlined(
-                tooltip: "Reset",
+                tooltip: "Refresh Today's Data",
                 onPressed: onRefresh,
                 icon: const Icon(Icons.refresh),
               ),
@@ -71,6 +79,7 @@ class DateSearchBar extends StatelessWidget {
           //------------------------------------
           TextField(
             controller: searchController,
+            onChanged: onSearchChanged,
             decoration: const InputDecoration(
               hintText: "Search Trainset...",
               prefixIcon: Icon(Icons.search),

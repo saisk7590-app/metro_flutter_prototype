@@ -1,53 +1,64 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
-import 'package:provider/provider.dart';
 import 'dart:math' as math;
+import 'package:flutter/material.dart';
+
 import '../../constants/map_data.dart';
-import '../../providers/active_trains_provider.dart';
-import '../../widgets/popups/assign_train_popup.dart';
-import 'train_details_popup.dart';
+import 'depot_cad_background.dart';
+import 'depot_bay_markers_layer.dart';
+import 'depot_map_header.dart';
+import 'developer_marker.dart';
+import 'developer_panel.dart';
+import 'map_touch_hint.dart';
+import 'map_zoom_controls.dart';
 
 class DepotMap extends StatefulWidget {
   final String depot;
   final String selectedSection;
+  final VoidCallback? onResetZoom;
+  final ValueChanged<bool>? onInteractionChange;
 
   const DepotMap({
     super.key,
     required this.depot,
     required this.selectedSection,
+    this.onResetZoom,
+    this.onInteractionChange,
   });
 
   @override
   State<DepotMap> createState() => _DepotMapState();
 }
 
-class _DepotMapState extends State<DepotMap> {
+class _DepotMapState extends State<DepotMap>
+    with SingleTickerProviderStateMixin {
   final TransformationController _controller = TransformationController();
+  late AnimationController _animController;
+  Animation<Matrix4>? _matrixAnimation;
 
   final GlobalKey _mapKey = GlobalKey();
   final GlobalKey _viewerKey = GlobalKey();
 
+  int _pointerCount = 0;
   Offset? _tapPosition;
-
   double _tapX = 0;
   double _tapY = 0;
 
   /// Turn OFF after collecting coordinates.
-  bool developerMode = true;
+  bool developerMode = false;
 
   @override
   void initState() {
     super.initState();
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 450),
+    );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _resetZoom();
-
+      if (!mounted) return;
       if (widget.selectedSection.isNotEmpty) {
-        Future.delayed(const Duration(milliseconds: 200), () {
-          if (mounted) {
-            _zoomToSection();
-          }
-        });
+        _zoomToSection(animate: false);
+      } else {
+        _resetZoom(animate: false);
       }
     });
   }
@@ -56,12 +67,115 @@ class _DepotMapState extends State<DepotMap> {
   void didUpdateWidget(covariant DepotMap oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    if (oldWidget.selectedSection != widget.selectedSection) {
-      _zoomToSection();
+    if (oldWidget.depot != widget.depot) {
+      if (widget.selectedSection.isNotEmpty) {
+        _zoomToSection(animate: false);
+      } else {
+        _resetZoom(animate: false);
+      }
+    } else if (oldWidget.selectedSection != widget.selectedSection) {
+      if (widget.selectedSection.isEmpty) {
+        _resetZoom(animate: true);
+      } else {
+        _zoomToSection(animate: true);
+      }
     }
   }
 
-  void _resetZoom() {
+  @override
+  void dispose() {
+    _matrixAnimation?.removeListener(_onMatrixAnimTick);
+    _animController.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onMatrixAnimTick() {
+    if (_matrixAnimation != null) {
+      _controller.value = _matrixAnimation!.value;
+    }
+  }
+
+  void _handlePointerDown() {
+    _pointerCount++;
+    if (_pointerCount == 1) widget.onInteractionChange?.call(true);
+  }
+
+  void _handlePointerRelease() {
+    _pointerCount = math.max(0, _pointerCount - 1);
+    if (_pointerCount == 0) widget.onInteractionChange?.call(false);
+  }
+
+  void _handleTapUp(TapUpDetails details) {
+    if (!developerMode) return;
+    final box = _mapKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    final local = box.globalToLocal(details.globalPosition);
+    final x = local.dx / box.size.width;
+    final y = local.dy / box.size.height;
+    setState(() {
+      _tapPosition = local;
+      _tapX = x;
+      _tapY = y;
+    });
+    debugPrint("\n========== ${widget.depot} ==========");
+    debugPrint("'${widget.selectedSection}': OffsetData(${x.toStringAsFixed(3)}, ${y.toStringAsFixed(3)}),");
+    debugPrint("====================================");
+  }
+
+  void _zoomIn() {
+    _zoomBy(1.35);
+  }
+
+  void _zoomOut() {
+    _zoomBy(1.0 / 1.35);
+  }
+
+  void _zoomBy(double factor) {
+    final viewerBox =
+        _viewerKey.currentContext?.findRenderObject() as RenderBox?;
+    if (viewerBox == null || !viewerBox.hasSize) return;
+
+    final size = viewerBox.size;
+    final center = Offset(size.width / 2.0, size.height / 2.0);
+
+    final currentMatrix = _controller.value;
+    final currentScale = currentMatrix.getMaxScaleOnAxis();
+    final targetScale = (currentScale * factor).clamp(0.05, 6.0);
+    if (currentScale == 0) return;
+    final effectiveFactor = targetScale / currentScale;
+
+    final targetMatrix = Matrix4.translationValues(center.dx, center.dy, 0.0)
+      ..multiply(Matrix4.diagonal3Values(effectiveFactor, effectiveFactor, 1.0))
+      ..multiply(Matrix4.translationValues(-center.dx, -center.dy, 0.0))
+      ..multiply(currentMatrix);
+
+    _animateToMatrix(targetMatrix);
+  }
+
+  void _animateToMatrix(Matrix4 targetMatrix) {
+    _matrixAnimation?.removeListener(_onMatrixAnimTick);
+    _animController.stop();
+
+    final currentMatrix = _controller.value;
+    if (currentMatrix == targetMatrix) return;
+
+    _matrixAnimation = Matrix4Tween(
+      begin: currentMatrix,
+      end: targetMatrix,
+    ).animate(CurvedAnimation(
+      parent: _animController,
+      curve: Curves.easeOutCubic,
+    ));
+
+    _matrixAnimation!.addListener(_onMatrixAnimTick);
+    _animController.forward(from: 0.0);
+  }
+
+  double _depotWidth() => widget.depot == 'Uppal' ? 2644.0 : 4076.0;
+  double _depotHeight() => widget.depot == 'Uppal' ? 2112.0 : 2380.0;
+
+  void _resetZoom({bool animate = true}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
 
@@ -69,74 +183,135 @@ class _DepotMapState extends State<DepotMap> {
           _viewerKey.currentContext?.findRenderObject() as RenderBox?;
       final mapBox = _mapKey.currentContext?.findRenderObject() as RenderBox?;
 
-      if (viewerBox == null || mapBox == null) return;
-      debugPrint("Viewer Size: ${viewerBox.size}");
-      debugPrint("Map Size: ${mapBox.size}");
+      if (viewerBox == null ||
+          mapBox == null ||
+          !viewerBox.hasSize ||
+          !mapBox.hasSize) {
+        Future.delayed(const Duration(milliseconds: 50), () {
+          if (mounted) _resetZoom(animate: animate);
+        });
+        return;
+      }
 
       final viewport = viewerBox.size;
       final mapSize = mapBox.size;
+      if (viewport.width <= 0 ||
+          viewport.height <= 0 ||
+          mapSize.width <= 0 ||
+          mapSize.height <= 0) {
+        return;
+      }
 
       final scale = math.min(
         viewport.width / mapSize.width,
         viewport.height / mapSize.height,
       );
 
-      final dx = (viewport.width - mapSize.width * scale) / 2;
-      final dy = (viewport.height - mapSize.height * scale) / 2;
+      final dx = (viewport.width - mapSize.width * scale) / 2.0;
+      final dy = (viewport.height - mapSize.height * scale) / 2.0;
 
-      _controller.value = Matrix4.identity()
-        ..translateByDouble(dx, dy, 0, 1)
-        ..scaleByDouble(scale, scale, scale, 1);
+      final targetMatrix = Matrix4.translationValues(dx, dy, 0.0)
+        ..multiply(Matrix4.diagonal3Values(scale, scale, 1.0));
+
+      if (animate) {
+        _animateToMatrix(targetMatrix);
+      } else {
+        _controller.value = targetMatrix;
+      }
     });
   }
 
-  void _zoomToSection() {
-    final center =
-        MapData.sectionCenters[widget.depot]?[widget.selectedSection];
+  void _zoomToSection({bool animate = true}) {
+    final bounds =
+        MapData.sectionBounds[widget.depot]?[widget.selectedSection];
 
-    final zoom = MapData.zoomLevels[widget.depot]?[widget.selectedSection];
-
-    if (center == null || zoom == null) return;
+    if (bounds == null) {
+      _resetZoom(animate: animate);
+      return;
+    }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
 
       final viewerBox =
           _viewerKey.currentContext?.findRenderObject() as RenderBox?;
-
       final mapBox = _mapKey.currentContext?.findRenderObject() as RenderBox?;
 
-      if (viewerBox == null || mapBox == null) return;
+      if (viewerBox == null ||
+          mapBox == null ||
+          !viewerBox.hasSize ||
+          !mapBox.hasSize) {
+        Future.delayed(const Duration(milliseconds: 50), () {
+          if (mounted) _zoomToSection(animate: animate);
+        });
+        return;
+      }
 
       final viewport = viewerBox.size;
       final mapSize = mapBox.size;
+      if (viewport.width <= 0 ||
+          viewport.height <= 0 ||
+          mapSize.width <= 0 ||
+          mapSize.height <= 0) {
+        return;
+      }
 
-      final targetX = center.x * mapSize.width;
-      final targetY = center.y * mapSize.height;
+      final overviewScale = math.min(
+        viewport.width / mapSize.width,
+        viewport.height / mapSize.height,
+      );
 
-      final tx = viewport.width / 2 - targetX * zoom;
-      final ty = viewport.height / 2 - targetY * zoom;
+      final padX = math.max(80.0, bounds.width * 0.18);
+      final padY = math.max(80.0, bounds.height * 0.22);
+      final paddedWidth = bounds.width + padX * 2.0;
+      final paddedHeight = bounds.height + padY * 2.0;
 
-      _controller.value = Matrix4.identity()
-        ..translateByDouble(tx, ty, 0, 1)
-        ..scaleByDouble(zoom, zoom, zoom, 1);
+      final scaleX = viewport.width / paddedWidth;
+      final scaleY = viewport.height / paddedHeight;
+      final fitScale = math.min(scaleX, scaleY);
+
+      final minZoom = overviewScale * 1.35;
+      final maxZoom = math.max(minZoom, math.min(2.2, overviewScale * 6.5));
+      final zoom = fitScale.clamp(minZoom, maxZoom);
+
+      final centerX = bounds.center.dx;
+      final centerY = bounds.center.dy;
+
+      final tx = viewport.width / 2.0 - centerX * zoom;
+      final ty = viewport.height / 2.0 - centerY * zoom;
+
+      final mapW = mapSize.width * zoom;
+      final mapH = mapSize.height * zoom;
+
+      final clampedTx = mapW > viewport.width
+          ? tx.clamp(viewport.width - mapW, 0.0)
+          : (viewport.width - mapW) / 2.0;
+      final clampedTy = mapH > viewport.height
+          ? ty.clamp(viewport.height - mapH, 0.0)
+          : (viewport.height - mapH) / 2.0;
+
+      final targetMatrix = Matrix4.translationValues(clampedTx, clampedTy, 0.0)
+        ..multiply(Matrix4.diagonal3Values(zoom, zoom, 1.0));
+
+      if (animate) {
+        _animateToMatrix(targetMatrix);
+      } else {
+        _controller.value = targetMatrix;
+      }
     });
   }
 
   @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
-    if (widget.depot.isEmpty) {
+    final isMobile = MediaQuery.of(context).size.width < 768;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final containerHeight = isMobile
+        ? math.max(340.0, screenHeight * 0.48)
+        : math.max(460.0, screenHeight * 0.62);
+
+    if (widget.depot.isEmpty || widget.depot == 'Select Depot') {
       return Container(
-        height: 450,
+        height: isMobile ? 260 : 400,
         alignment: Alignment.center,
         decoration: BoxDecoration(
           border: Border.all(color: Colors.grey.shade400),
@@ -149,8 +324,11 @@ class _DepotMapState extends State<DepotMap> {
       );
     }
 
+    final nativeWidth = _depotWidth();
+    final nativeHeight = _depotHeight();
+
     return Container(
-      height: MediaQuery.of(context).size.height * .65,
+      height: containerHeight,
       width: double.infinity,
       decoration: BoxDecoration(
         border: Border.all(color: Colors.grey.shade400),
@@ -158,248 +336,132 @@ class _DepotMapState extends State<DepotMap> {
       ),
       child: Column(
         children: [
-          //---------------------------------------------------
-          // Header
-          //---------------------------------------------------
-          Container(
-            height: 50,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF1E293B) : const Color(0xFFEAF4FF),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(12),
-                topRight: Radius.circular(12),
-              ),
-              border: Border(bottom: BorderSide(color: colors.outline)),
-            ),
-            child: Row(
-              children: [
-                Text(
-                  "${widget.depot} Layout",
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                    color: isDark ? Colors.white : const Color(0xFF1E3A8A),
-                  ),
-                ),
-
-                const Spacer(),
-
-                TextButton.icon(
-                  onPressed: _resetZoom,
-                  icon: Icon(Icons.refresh, color: theme.primaryColor),
-                  label: Text(
-                    "Reset",
-                    style: TextStyle(color: theme.primaryColor),
-                  ),
-                ),
-              ],
-            ),
+          // Header (NxAMS Style)
+          DepotMapHeader(
+            depot: widget.depot,
+            selectedSection: widget.selectedSection,
+            isMobile: isMobile,
+            onReset: () {
+              _resetZoom(animate: true);
+              widget.onResetZoom?.call();
+            },
           ),
 
-          //---------------------------------------------------
-          // Map
-          //---------------------------------------------------
+          // Map Canvas
           Expanded(
             child: ClipRRect(
               borderRadius: const BorderRadius.only(
                 bottomLeft: Radius.circular(12),
                 bottomRight: Radius.circular(12),
               ),
-              child: InteractiveViewer(
-                key: _viewerKey,
-                transformationController: _controller,
-
-                // allow your code (_zoomToSection) to control zoom
-                minScale: .2,
-                maxScale: 8,
-                // allow user pinch-to-zoom gestures
-                scaleEnabled: true,
-                // user can still drag/pan the map
-                panEnabled: true,
-                constrained: false,
-                boundaryMargin: const EdgeInsets.all(1500),
-                clipBehavior: Clip.none,
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTapUp: (details) {
-                    if (!developerMode) return;
-
-                    final box =
-                        _mapKey.currentContext!.findRenderObject() as RenderBox;
-
-                    final local = box.globalToLocal(details.globalPosition);
-
-                    final x = local.dx / box.size.width;
-                    final y = local.dy / box.size.height;
-
-                    setState(() {
-                      _tapPosition = local;
-                      _tapX = x;
-                      _tapY = y;
-                    });
-
-                    debugPrint("");
-                    debugPrint("========== ${widget.depot} ==========");
-                    debugPrint(
-                      "'${widget.selectedSection}': OffsetData("
-                      "${x.toStringAsFixed(3)}, "
-                      "${y.toStringAsFixed(3)}),",
-                    );
-                    debugPrint("====================================");
-                    debugPrint("");
-                  },
-                  child: Stack(
+              child: LayoutBuilder(
+                builder: (context, viewportConstraints) {
+                  return Stack(
                     children: [
-                      LayoutBuilder(
-                        builder: (context, constraints) {
-                          final availableWidth = constraints.maxWidth.isFinite
-                              ? constraints.maxWidth
-                              : MediaQuery.of(context).size.width;
-                          const assetAspect = 1224.0 / 792.0;
-                          final calculatedHeight = availableWidth / assetAspect;
-
-                          final scaleX = availableWidth / 1224.0;
-                          final scaleY = calculatedHeight / 792.0;
-
-                          return SizedBox(
-                            key: _mapKey,
-                            width: availableWidth,
-                            height: calculatedHeight,
-                            child: Stack(
-                              children: [
-                                widget.depot == "Miyapur"
-                                    ? SvgPicture.asset(
-                                        "assets/maps/miyapur_layout.svg",
-                                        fit: BoxFit.contain,
-                                      )
-                                    : SvgPicture.asset(
-                                        "assets/maps/upl_layout_new.svg",
-                                        fit: BoxFit.contain,
-                                      ),
-
-                                //-------------------------------------------------
-                                // Tracks (scaled)
-                                //-------------------------------------------------
-                                ..._buildTrackMarkers(scaleX, scaleY),
-
-                                //-------------------------------------------------
-                                // Developer Marker
-                                //-------------------------------------------------
-                                if (developerMode && _tapPosition != null)
-                                  Positioned(
-                                    left: _tapPosition!.dx - 6,
-                                    top: _tapPosition!.dy - 6,
-                                    child: Container(
-                                      width: 12,
-                                      height: 12,
-                                      decoration: const BoxDecoration(
-                                        color: Colors.red,
-                                        shape: BoxShape.circle,
+                      // 1. InteractiveViewer with Touch-isolation Listener
+                      Listener(
+                        behavior: HitTestBehavior.opaque,
+                        onPointerDown: (_) => _handlePointerDown(),
+                        onPointerUp: (_) => _handlePointerRelease(),
+                        onPointerCancel: (_) => _handlePointerRelease(),
+                        child: InteractiveViewer(
+                          key: _viewerKey,
+                          transformationController: _controller,
+                          minScale: 0.05,
+                          maxScale: 6.0,
+                          scaleEnabled: true,
+                          panEnabled: true,
+                          constrained: false,
+                          boundaryMargin: EdgeInsets.symmetric(
+                            horizontal: math.max(
+                              140.0,
+                              viewportConstraints.maxWidth * 0.4,
+                            ),
+                            vertical: math.max(
+                              100.0,
+                              viewportConstraints.maxHeight * 0.4,
+                            ),
+                          ),
+                          clipBehavior: Clip.hardEdge,
+                          interactionEndFrictionCoefficient: 0.0005,
+                          onInteractionStart: (_) => widget.onInteractionChange?.call(true),
+                          onInteractionEnd: (_) {
+                            if (_pointerCount == 0) {
+                              widget.onInteractionChange?.call(false);
+                            }
+                          },
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTapUp: _handleTapUp,
+                            child: RepaintBoundary(
+                              child: SizedBox(
+                                key: _mapKey,
+                                width: nativeWidth,
+                                height: nativeHeight,
+                                child: Stack(
+                                  children: [
+                                    // 1. Depot CAD Background (PNG) & SVG Tracks
+                                    Positioned.fill(
+                                      child: DepotCadBackground(
+                                        depot: widget.depot,
                                       ),
                                     ),
-                                  ),
-                              ],
+
+                                    // 2. Interactive Tracks with Allocation Overlays
+                                    Positioned.fill(
+                                      child: DepotBayMarkersLayer(
+                                        depot: widget.depot,
+                                        selectedSection: widget.selectedSection,
+                                      ),
+                                    ),
+
+                                    // 3. Developer Marker
+                                    if (developerMode && _tapPosition != null)
+                                      DeveloperMarker(position: _tapPosition!),
+                                  ],
+                                ),
+                              ),
                             ),
-                          );
-                        },
+                          ),
+                        ),
                       ),
+
+                      // 2. Floating On-Screen Map Zoom & Fit Controls
+                      Positioned(
+                        right: 12,
+                        bottom: 12,
+                        child: MapZoomControls(
+                          onZoomIn: _zoomIn,
+                          onZoomOut: _zoomOut,
+                          onResetZoom: () {
+                            _resetZoom(animate: true);
+                            widget.onResetZoom?.call();
+                          },
+                        ),
+                      ),
+
+                      // 3. Mobile Touch Hint Banner
+                      if (isMobile)
+                        const Positioned(
+                          left: 12,
+                          top: 10,
+                          child: MapTouchHintBanner(),
+                        ),
                     ],
-                  ),
-                ),
+                  );
+                },
               ),
             ),
           ),
 
-          //---------------------------------------------------
           // Developer Panel
-          //---------------------------------------------------
           if (developerMode)
-            Container(
-              width: double.infinity,
-              color: Colors.black87,
-              padding: const EdgeInsets.all(8),
-              child: Text(
-                "X : ${_tapX.toStringAsFixed(3)}   |   "
-                "Y : ${_tapY.toStringAsFixed(3)}",
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontFamily: 'monospace',
-                ),
-              ),
+            DeveloperPanel(
+              x: _tapX,
+              y: _tapY,
             ),
         ],
       ),
     );
-  }
-
-  List<Widget> _buildTrackMarkers(double scaleX, double scaleY) {
-    if (widget.depot.isEmpty) return [];
-
-    final depotCode = widget.depot == 'Miyapur' ? 'MP' : 'UP';
-    final activeTrainsProvider = Provider.of<ActiveTrainsProvider>(context);
-    List<Widget> markers = [];
-
-    MapData.trackBounds.forEach((trackId, bounds) {
-      if (!trackId.startsWith(depotCode)) return;
-
-      final parts = trackId.substring(2).split('-');
-      if (parts.length < 2) return;
-      final section = parts[0];
-      final trackNumber = parts[1];
-
-      final assignment = activeTrainsProvider.getTrainAtSlot(trackId);
-
-      markers.add(
-        Positioned(
-          left: bounds.x * scaleX,
-          top: bounds.y * scaleY,
-          width: bounds.w * scaleX,
-          height: bounds.h * scaleY,
-          child: GestureDetector(
-            onTap: () {
-              if (assignment == null) {
-                showDialog(
-                  context: context,
-                  builder: (context) => AssignTrainPopup(
-                    depotName: widget.depot,
-                    sectionName: section,
-                    trackNumber: trackNumber,
-                    trackId: trackId,
-                  ),
-                );
-              } else {
-                showDialog(
-                  context: context,
-                  builder: (context) =>
-                      TrainDetailsPopup(assignment: assignment),
-                );
-              }
-            },
-            child: Tooltip(
-              message: trackId,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: assignment != null
-                      ? assignment.statusColor.withValues(alpha: 0.6)
-                      : Colors.transparent,
-                  border: Border.all(
-                    color: assignment != null
-                        ? assignment.statusColor
-                        : Colors.transparent,
-                    width: 1,
-                  ),
-                ),
-                child: assignment != null
-                    ? FittedBox(child: Icon(Icons.train, color: Colors.white))
-                    : null,
-              ),
-            ),
-          ),
-        ),
-      );
-    });
-
-    return markers;
   }
 }

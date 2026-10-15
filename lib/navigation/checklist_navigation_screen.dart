@@ -1,11 +1,10 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
-import '../utils/scaffold_keys.dart';
 import 'app_sidebar.dart';
 
-import '../screens/CheckList/work_orders_screen.dart';
-import '../screens/CheckList/checklist_screen.dart';
-import '../screens/CheckList/work_order_history_screen.dart';
+import '../screens/checklist/work_orders_screen.dart';
+import '../screens/checklist/checklist_screen.dart';
+import '../screens/checklist/work_order_history_screen.dart';
 
 class ChecklistNavigationScreen extends StatefulWidget {
   const ChecklistNavigationScreen({super.key});
@@ -15,38 +14,39 @@ class ChecklistNavigationScreen extends StatefulWidget {
       _ChecklistNavigationScreenState();
 }
 
-class _ChecklistNavigationScreenState
-    extends State<ChecklistNavigationScreen> {
+class _ChecklistNavigationScreenState extends State<ChecklistNavigationScreen> {
   int _currentIndex = 0;
-
-  final List<Widget> _screens = const [
-     ChecklistScreen(),
-    WorkOrdersScreen(),
-    WorkOrderHistoryScreen(),
-  ];
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final List<Widget> screens = [
+      const ChecklistScreen(),
+      WorkOrdersScreen(
+        onSwitchToChecklist: () => setState(() => _currentIndex = 0),
+      ),
+      const WorkOrderHistoryScreen(),
+    ];
+
     return Scaffold(
-      key: AppScaffoldKeys.checklistKey,
       drawer: const AppSidebar(currentModule: 'checklist'),
-
-      body: _screens[_currentIndex],
-
+      body: screens[_currentIndex],
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) => setState(() => _currentIndex = index),
-        selectedItemColor: Theme.of(context).primaryColor,
+        selectedItemColor: theme.primaryColor,
+        selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold),
         items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.fact_check_outlined),
+            activeIcon: Icon(Icons.fact_check),
+            label: 'Checklists',
+          ),
           BottomNavigationBarItem(
             icon: Icon(Icons.assignment_outlined),
             activeIcon: Icon(Icons.assignment),
             label: 'Work Orders',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.fact_check_outlined),
-            activeIcon: Icon(Icons.fact_check),
-            label: 'Checklist',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.history_outlined),

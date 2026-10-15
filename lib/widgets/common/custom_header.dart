@@ -3,14 +3,14 @@ import 'package:flutter/material.dart';
 class CustomHeader extends StatelessWidget {
   final String title;
   final String subtitle;
-  // final VoidCallback? onMenuPressed;
+  final VoidCallback? onMenuPressed;
   final List<Widget>? actions;
 
   const CustomHeader({
     super.key,
     required this.title,
     required this.subtitle,
-    // this.onMenuPressed,
+    this.onMenuPressed,
     this.actions,
   });
 
@@ -31,10 +31,37 @@ class CustomHeader extends StatelessWidget {
             // Hamburger Menu
             //------------------------------------------
             Builder(
-              builder: (context) {
+              builder: (ctx) {
                 return InkWell(
                   onTap: () {
-                    Scaffold.of(context).openDrawer();
+                    if (onMenuPressed != null) {
+                      onMenuPressed!();
+                      return;
+                    }
+
+                    // 1. Traverse up the tree to find nearest ancestor Scaffold with a drawer
+                    ScaffoldState? targetScaffold;
+                    ctx.visitAncestorElements((element) {
+                      if (element is StatefulElement &&
+                          element.state is ScaffoldState) {
+                        final state = element.state as ScaffoldState;
+                        if (state.hasDrawer) {
+                          targetScaffold = state;
+                          return false; // Stop traversing
+                        }
+                      }
+                      return true; // Continue traversing
+                    });
+
+                    if (targetScaffold != null) {
+                      targetScaffold!.openDrawer();
+                      return;
+                    }
+
+                    // 2. Fall back to nearest Scaffold if available
+                    try {
+                      Scaffold.maybeOf(ctx)?.openDrawer();
+                    } catch (_) {}
                   },
                   borderRadius: BorderRadius.circular(12),
                   child: Container(

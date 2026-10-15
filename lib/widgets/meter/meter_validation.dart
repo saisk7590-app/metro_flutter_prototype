@@ -1,4 +1,4 @@
-import '../../models/meter_reading.dart';
+﻿import '../../models/meter/meter_reading.dart';
 
 class MeterValidation {
   const MeterValidation._();
@@ -8,11 +8,16 @@ class MeterValidation {
   //--------------------------------------------------
 
   static bool isReadingValid({
-    required int previousReading,
-    required int? currentReading,
+    required num previousReading,
+    required num? currentReading,
+    bool isReset = false,
   }) {
     if (currentReading == null) {
       return false;
+    }
+
+    if (isReset) {
+      return currentReading >= 0;
     }
 
     return currentReading >= previousReading;
@@ -22,12 +27,17 @@ class MeterValidation {
   // Net Reading
   //--------------------------------------------------
 
-  static int calculateNetReading({
-    required int previousReading,
-    required int? currentReading,
+  static num calculateNetReading({
+    required num previousReading,
+    required num? currentReading,
+    bool isReset = false,
   }) {
     if (currentReading == null) {
       return 0;
+    }
+
+    if (isReset) {
+      return currentReading;
     }
 
     if (currentReading < previousReading) {
@@ -42,11 +52,19 @@ class MeterValidation {
   //--------------------------------------------------
 
   static String? readingError({
-    required int previousReading,
-    required int? currentReading,
+    required num previousReading,
+    required num? currentReading,
+    bool isReset = false,
   }) {
     if (currentReading == null) {
       return "Current Reading is required";
+    }
+
+    if (isReset) {
+      if (currentReading < 0) {
+        return "Current Reading must be greater than or equal to 0";
+      }
+      return null;
     }
 
     if (currentReading < previousReading) {
@@ -61,13 +79,13 @@ class MeterValidation {
   //--------------------------------------------------
 
   static bool isMeterCompleted(MeterReading meter) {
-    final readingValid =
-        meter.currentReading != null &&
-        meter.currentReading! >= meter.previousReading;
+    if (meter.currentReading == null) return false;
 
-    final resetValid = !meter.reset || meter.resetRemarks.trim().isNotEmpty;
+    if (meter.reset) {
+      return meter.currentReading! >= 0 && meter.resetRemarks.trim().isNotEmpty;
+    }
 
-    return readingValid && resetValid;
+    return meter.currentReading! >= meter.previousReading;
   }
 
   //--------------------------------------------------
@@ -91,7 +109,7 @@ class MeterValidation {
   //--------------------------------------------------
 
   static bool canSave(List<MeterReading> meters) {
-    return meters.isNotEmpty && meters.every((meter) => meter.isCompleted);
+    return meters.isNotEmpty && meters.any((meter) => meter.isCompleted);
   }
 
   //--------------------------------------------------
@@ -108,3 +126,4 @@ class MeterValidation {
     return true;
   }
 }
+
