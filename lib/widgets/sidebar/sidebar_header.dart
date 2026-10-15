@@ -97,7 +97,7 @@ class SidebarHeader extends StatelessWidget {
                   shape: BoxShape.circle,
                 ),
                 child: Image.asset(
-                  'assets/icons/metro-logo-demo.png',
+                  'assets/icons/metro-logo.png',
                   height: 30,
                   width: 30,
                   fit: BoxFit.contain,
@@ -111,7 +111,7 @@ class SidebarHeader extends StatelessWidget {
               const SizedBox(width: 10),
               const Expanded(
                 child: Text(
-                  'HYDERABAD METRO (DEMO)',
+                  'HYDERABAD METRO RAIL',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 12,
