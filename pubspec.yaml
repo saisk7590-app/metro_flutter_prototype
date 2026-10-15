@@ -62,6 +62,7 @@ dev_dependencies:
 flutter:
   assets:
     - assets/maps/
+    - assets/icons/
 
 
   # The following line ensures that the Material Icons font is
@@ -102,4 +103,4 @@ flutter:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/icon/metro_ams_icon.png"
+  image_path: "assets/icons/metro-logo.png"
