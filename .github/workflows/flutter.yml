@@ -1,6 +1,9 @@
-name: Metro AMS Prototype APK Build
+name: Metro Demo Prototype APK Build
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -8,36 +11,39 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout repository
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      # Install Flutter
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
       - name: Install Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          channel: 'stable'
+          cache: true
 
-      # Verify Flutter installation
-      - name: Check Flutter Version
-        run: flutter --version
+      - name: Check Environment
+        run: |
+          java -version
+          flutter --version
 
-      # Install packages
       - name: Install Dependencies
         run: flutter pub get
 
-      # Build Release APK
-      - name: Build APK
+      - name: Build Release APK
         run: flutter build apk --release
 
-      # Rename generated APK
-      - name: Rename APK
-        run: |
-          mv build/app/outputs/flutter-apk/app-release.apk Metro-AMS-Prototype-v1.0.0.apk
+      - name: Prepare APK with Distinct Demo Name
+        run: cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/Metro-Demo-Prototype.apk
 
-      # Upload APK artifact
-      - name: Upload APK
+      - name: Upload Prototype APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Metro-AMS-Prototype-v1.0.0
-          path: Metro-AMS-Prototype-v1.0.0.apk
+          name: metro-demo-prototype-apk
+          path: build/app/outputs/flutter-apk/Metro-Demo-Prototype.apk
+          retention-days: 14
