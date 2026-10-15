@@ -13,7 +13,7 @@ class LoginLogo extends StatelessWidget {
       children: [
         Center(
           child: Image.asset(
-            'assets/icons/metro-logo.png',
+            'assets/icons/metro-logo-demo.png',
             height: 72,
             width: 72,
             fit: BoxFit.contain,
@@ -38,6 +38,19 @@ class LoginLogo extends StatelessWidget {
               color: theme.primaryColor,
               fontWeight: FontWeight.bold,
               letterSpacing: 1.1,
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 2),
+
+        Center(
+          child: Text(
+            "Asset Management System (Demo Mode)",
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.secondary,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.3,
             ),
           ),
         ),
