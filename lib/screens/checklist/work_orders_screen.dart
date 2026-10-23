@@ -1,10 +1,11 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../widgets/common/custom_header.dart';
 import '../../providers/checklist/checklist_provider.dart';
 import '../../widgets/checklist/work_order_card.dart';
 import '../../widgets/meter/pagination_bar.dart';
+import '../work_order/job_card_screen.dart';
 
 class WorkOrdersScreen extends StatefulWidget {
   final VoidCallback? onSwitchToChecklist;
@@ -169,9 +170,14 @@ class _WorkOrdersScreenState extends State<WorkOrdersScreen> {
                               isSelected: isSelected,
                               onTap: () async {
                                 await provider.selectWorkOrder(wo);
-                                if (widget.onSwitchToChecklist != null) {
-                                  widget.onSwitchToChecklist!();
-                                }
+                                if (!context.mounted) return;
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        JobCardScreen(workOrder: wo),
+                                  ),
+                                );
                               },
                             );
                           },

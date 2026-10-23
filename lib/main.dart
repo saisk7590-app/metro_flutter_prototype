@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:metro_flutter/providers/maintenance_bay/status_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:metro_flutter/providers/maintenance_bay/maintenance_purpose_provider.dart';
@@ -11,6 +11,9 @@ import 'package:metro_flutter/providers/meter/trainset_meter_reading_provider.da
 import 'package:metro_flutter/providers/checklist/checklist_provider.dart';
 import 'package:metro_flutter/providers/notifications/notification_provider.dart';
 import 'package:metro_flutter/providers/auth/profile_provider.dart';
+import 'package:metro_flutter/providers/service_request/service_request_provider.dart';
+import 'package:metro_flutter/providers/ptw/ptw_provider.dart';
+import 'package:metro_flutter/providers/work_order/job_card_provider.dart';
 
 import 'package:metro_flutter/screens/auth/login_screen.dart';
 import 'package:metro_flutter/screens/auth/biometric_unlock_screen.dart';
@@ -43,6 +46,12 @@ void main() async {
       ChangeNotifierProvider(create: (_) => NotificationProvider()),
       // Profile Provider (Live staff profile details from admin API)
       ChangeNotifierProvider(create: (_) => ProfileProvider()),
+      // Service Request Provider (Depot Fleet Fault Logging & Ticket Tracking)
+      ChangeNotifierProvider(create: (_) => ServiceRequestProvider()),
+      // Permit To Work Provider (Track Possession & Power Block Safety)
+      ChangeNotifierProvider(create: (_) => PtwProvider()),
+      // Job Card Execution Provider (Labor, Materials, Tools, and Rescheduling)
+      ChangeNotifierProvider(create: (_) => JobCardProvider()),
     ],
     child: MyApp(hasBiometricSession: hasBiometricSession),
   );
